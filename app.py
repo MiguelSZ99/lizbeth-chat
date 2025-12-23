@@ -20,7 +20,6 @@ app = Flask(__name__)
 #  CONFIG
 # ==========================
 CHAT_ID = os.getenv("CHAT_ID", "Lizbeth")  # chat identifier
-MAX_MENSAJES = int(os.getenv("MAX_MENSAJES", "20"))
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
@@ -43,7 +42,7 @@ EMOCIONES = {
         "Sé que somos mundos diferentes… pero quiero sentir esa adrenalina contigo."
     ],
     "risa": [
-        "¿Quieres jugar otro juego más comprometido? Se tienen que respetar las reglas 😄",
+        "¿Quieres jugar un juego comprometido? Se tienen que respetar las reglas 😄",
         "¿Subirías una montaña conmigo?",
         "Seguro pusiste cara rara leyendo mis ocurrencias 😂",
         "Grábate todo de mí porque no soy un video para que le des retroceder.",
@@ -97,12 +96,12 @@ def sqlite_guardar(chat: str, de: str, texto: str):
     con.commit()
     con.close()
 
-def sqlite_historial(chat: str, limit: int):
+def sqlite_historial(chat: str):
     con = sqlite3.connect(DB_PATH)
     cur = con.cursor()
     cur.execute(
-        "SELECT de, texto, created_at FROM mensajes WHERE chat=? ORDER BY id ASC LIMIT ?",
-        (chat, limit)
+        "SELECT de, texto, created_at FROM mensajes WHERE chat=? ORDER BY id ASC",
+        (chat,)
     )
     rows = cur.fetchall()
     con.close()
@@ -112,16 +111,18 @@ def sqlite_historial(chat: str, limit: int):
 #  Supabase helpers
 # ==========================
 def supa_guardar(chat: str, de: str, texto: str):
-    # Assumes table "mensajes" with columns: chat (text), de (text), texto (text)
-    supabase.table("mensajes").insert({"chat": chat, "de": de, "texto": texto}).execute()
+    supabase.table("mensajes").insert({
+        "chat": chat,
+        "de": de,
+        "texto": texto
+    }).execute()
 
-def supa_historial(chat: str, limit: int):
+def supa_historial(chat: str):
     res = (
         supabase.table("mensajes")
         .select("de, texto, created_at")
         .eq("chat", chat)
         .order("created_at", desc=False)
-        .limit(limit)
         .execute()
     )
     return res.data if res.data else []
@@ -137,8 +138,8 @@ def guardar_mensaje(de: str, texto: str):
 
 def obtener_historial():
     if USE_SUPABASE:
-        return supa_historial(CHAT_ID, MAX_MENSAJES)
-    return sqlite_historial(CHAT_ID, MAX_MENSAJES)
+        return supa_historial(CHAT_ID)
+    return sqlite_historial(CHAT_ID)
 
 # Init sqlite for local use
 sqlite_init()
@@ -153,15 +154,12 @@ def home():
 @app.route("/app", methods=["GET", "POST"])
 def app_view():
     if request.method == "POST":
-        # mood button -> generate phrase
         if "emocion" in request.form:
             emo = request.form.get("emocion", "")
             if emo in EMOCIONES:
                 frase = random.choice(EMOCIONES[emo])
-                # show it after redirect (no duplicate on refresh)
                 return redirect(url_for("app_view", f=frase))
 
-        # chat message from her
         if "pregunta" in request.form:
             texto = (request.form.get("pregunta") or "").strip()
             if texto:
@@ -169,11 +167,19 @@ def app_view():
             return redirect(url_for("app_view"))
 
     frase = request.args.get("f")
-    return render_template("index.html", frase_generada=frase, estado_url=url_for("estado"))
+    return render_template(
+        "index.html",
+        frase_generada=frase,
+        estado_url=url_for("estado")
+    )
 
 @app.route("/panel_miguel", methods=["GET"])
 def panel_miguel():
-    return render_template("miguel.html", estado_url=url_for("estado"), post_url=url_for("post_miguel"))
+    return render_template(
+        "miguel.html",
+        estado_url=url_for("estado"),
+        post_url=url_for("post_miguel")
+    )
 
 @app.route("/post_miguel", methods=["POST"])
 def post_miguel():
@@ -184,12 +190,19 @@ def post_miguel():
 
 @app.route("/estado")
 def estado():
-    return jsonify({"historial": obtener_historial(), "chat": CHAT_ID, "storage": "supabase" if USE_SUPABASE else "sqlite"})
+    return jsonify({
+        "historial": obtener_historial(),
+        "chat": CHAT_ID,
+        "storage": "supabase" if USE_SUPABASE else "sqlite"
+    })
 
 @app.route("/favicon.ico")
 def favicon():
     return ("", 204)
 
 if __name__ == "__main__":
-    # debug=True only for local dev
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", "5000")), debug=True)
+    app.run(
+        host="0.0.0.0",
+        port=int(os.getenv("PORT", "5000")),
+        debug=True
+    )
